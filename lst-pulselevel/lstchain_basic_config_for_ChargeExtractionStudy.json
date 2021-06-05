@@ -135,13 +135,7 @@
     "apply_waveform_time_shift": false
   },
   "time_sampling_correction_path": "default",
-  __IMAGE_EXTRACTER_PARAMETER_BLOCK__
-  "GlobalPeakWindowSum":{
-     "window_shift": 4,
-     "window_width": 8,
-     "apply_integration_correction": false
-    },
-
+__IMAGE_EXTRACTER_PARAMETER_BLOCK__
   "timestamps_pointing":"ucts",
 
   "source_dependent": false,
