@@ -8,6 +8,7 @@ from glob import glob
 from pathlib import Path
 import tables
 from astropy.io import fits
+import astropy.units as u
 #from lstchain.reco import r0_to_dl1
 #from lstchain.io.io import dl1_images_lstcam_key, dl1_params_tel_mon_ped_key, dl1_params_tel_mon_cal_key, dl1_params_lstcam_key, dl1_params_src_dep_lstcam_key
 from scipy.stats import binned_statistic
@@ -17,7 +18,7 @@ from logging import getLogger,StreamHandler,DEBUG,INFO,WARNING,ERROR,CRITICAL
 ##### Logger #####
 logger = getLogger(__name__)
 handler = StreamHandler()
-loglevel = 'INFO'
+loglevel = 'DEBUG'
 handler.setLevel(loglevel)
 logger.setLevel(loglevel)
 logger.addHandler(handler)
@@ -118,12 +119,14 @@ class ImageExtracterConfig:
             return 0
             
             
-    def read_dl1(self, tel_id=1):
+    def read_dl1(self, event_used, tel_id=1): #, emin=10*u.GeV, emax=50*u.GeV):
         self.dl1_data = tables.open_file(self.dl1_file_path)
+        images_tel = self.dl1_data.root.dl1.event.telescope.image.LST_LSTCam.where("""tel_id=={0}""".format(tel_id))
         self.dl1_image_tables = \
-        [ x[2] for x in self.dl1_data.root.dl1.event.telescope.image.LST_LSTCam.where("""tel_id=={0}""".format(tel_id))]
+        [ x[2] for (x, y) in zip(images_tel, event_used) if y==True]
+        #[ x[2] for x, y in zip(self.dl1_data.root.dl1.event.telescope.image.LST_LSTCam.where("""tel_id=={0} and mc_energy>={1} and mc_energy<{2}""".format(tel_id, emin.to(u.TeV).value, emax.to(u.TeV).value)), event_used)]
         self.dl1_entries = len(self.dl1_image_tables)
-        
+        logger.debug('DL1 event number: {0} events'.format(self.dl1_entries))
         dl1_reco_phe = [] 
         for dl1img in self.dl1_image_tables:
             for i in dl1img:
@@ -150,7 +153,7 @@ class ImageExtracterConfig:
             self.reco_devfrac_stats[kstat] = binned_statistic(true_phe, self.dl1_reco_true_devfrac, statistic=kstat, bins=self.bins)
             
         # Log binning
-        self.logbins = np.logspace(0, 3, 31)
+        self.logbins = np.logspace(0, 3, 16)
         for kstat in self.reco_stats_log.keys():
             self.reco_stats_log[kstat] = binned_statistic(true_phe_zeromasked, self.dl1_reco_phe, statistic=kstat, bins=self.logbins)
         for kstat in self.reco_frac_stats_log.keys():
