@@ -18,7 +18,7 @@ from logging import getLogger,StreamHandler,DEBUG,INFO,WARNING,ERROR,CRITICAL
 ##### Logger #####
 logger = getLogger(__name__)
 handler = StreamHandler()
-loglevel = 'DEBUG'
+loglevel = 'INFO'
 handler.setLevel(loglevel)
 logger.setLevel(loglevel)
 logger.addHandler(handler)
