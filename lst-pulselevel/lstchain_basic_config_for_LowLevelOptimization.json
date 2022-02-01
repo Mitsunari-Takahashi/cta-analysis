@@ -36,6 +36,13 @@
 
 __TAILCUT__
 __TAILCUTS_CLEAN_WITH_PEDESTAL_THRESHOLD__
+
+  "dynamic_cleaning": {
+    "apply": false,
+    "threshold": 267,
+    "fraction_cleaning_intensity": 0.03
+  },
+
     "random_forest_regressor_args": {
     "max_depth": 50,
     "min_samples_leaf": 2,

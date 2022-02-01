@@ -6,6 +6,7 @@ import os
 import subprocess
 from glob import glob
 from pathlib import Path
+import hdf5plugin #Added by Mitsunari
 import tables
 from astropy.io import fits
 import astropy.units as u
@@ -13,12 +14,13 @@ import astropy.units as u
 #from lstchain.io.io import dl1_images_lstcam_key, dl1_params_tel_mon_ped_key, dl1_params_tel_mon_cal_key, dl1_params_lstcam_key, dl1_params_src_dep_lstcam_key
 from scipy.stats import binned_statistic
 from datetime import datetime
+from collections import OrderedDict
 from logging import getLogger,StreamHandler,DEBUG,INFO,WARNING,ERROR,CRITICAL
 
 ##### Logger #####
 logger = getLogger(__name__)
 handler = StreamHandler()
-loglevel = 'DEBUG'
+loglevel = 'INFO'
 handler.setLevel(loglevel)
 logger.setLevel(loglevel)
 logger.addHandler(handler)
@@ -138,12 +140,13 @@ class LowLevelAnalysis:
         self.product_dir_path = output_dir_path / self.name
         if not self.product_dir_path.exists():
             os.makedirs(self.product_dir_path)   
-        self.dl1_file_path = None
+        #self.dl1_file_path = None
         
         # Readout data
-        self.dl1_data = None
-        self.dl1_image_tables = None
-        
+        self.dl1_data = {}
+        self.dl1_image_tables = {}
+        self.dl1_entries = {}
+    
         # Performance results
         self.dl1_reco_phe = None
         self.dl1_reco_log10phe = None        
@@ -174,42 +177,48 @@ class LowLevelAnalysis:
     def produce_mc_dl1(self, dl0_data, script_path_str='/home/mitsunari.takahashi/Work/Soft/cta-lstchain/lstchain/scripts/lstchain_mc_r0_to_dl1.py'):
         dl1_file_names = []
         dl1_file_paths = []
+        dl1_file_dict = OrderedDict()
+        dl1_production_result = 0
+        out_dir_path = self.product_dir_path / 'mc' / 'DL1'
+        if not out_dir_path.is_dir():
+            out_dir_path.mkdir(parents=True)
         for dl0_path in dl0_data.file_paths:
             dl1_file_names.append('_'.join(['dl1', dl0_path.name.replace('.simtel.gz', '.h5')]))
             dl1_file_paths.append(self.product_dir_path / dl1_file_names[-1])
+            dl1_file_dict[dl1_file_names[-1]] = dl1_file_paths[-1]
             if not dl1_file_paths[-1].exists():
-                dl1_production_result = subprocess.run(['python', script_path_str, '--input-file', '{dl0_path}'.format(dl0_path=dl0_path), '--config', '{config_path}'.format(config_path=self.config_path), '--output-dir', '{product_dir_path}'.format(product_dir_path=self.product_dir_path)], 
+                dl1_production_result += subprocess.run(['python', script_path_str, '--input-file', '{dl0_path}'.format(dl0_path=dl0_path), '--config', '{config_path}'.format(config_path=self.config_path), '--output-dir', '{product_dir_path}'.format(product_dir_path=out_dir_path)], 
                                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 logger.info(dl1_production_result.stdout)
                 logger.warning(dl1_production_result.stderr)
                 #return dl1_production_result.returncode
             else:
-                dtfile = datetime.fromtimestamp(self.dl1_file_path.stat().st_mtime)
+                dtfile = datetime.fromtimestamp(dl1_file_paths[-1].stat().st_mtime)
                 dtnow = datetime.now()
                 fileage = dtnow-dtfile
-                logger.warning('{0} already exists! It was modified {1:.0f} days {2:.0f} hours {3:.0f} minutes before.'.format(self.dl1_file_path, fileage.days, fileage.seconds/3600, (fileage.seconds%3600)/60))
+                logger.warning('{0} already exists! It was modified {1:.0f} days {2:.0f} hours {3:.0f} minutes before.'.format(dl1_file_paths[-1], fileage.days, fileage.seconds/3600, (fileage.seconds%3600)/60))
         #self.dl1_file_name = dl1_file_names
         #self.dl1_file_path = dl1_file_paths
-
-        return [dl1_file_names, dl1_file_paths]
+        self.dl1_file_dict = dl1_file_dict
+        return dl1_production_result #[dl1_file_names, dl1_file_paths]
             
             
-    def read_dl1(self, event_used, tel_id=1, hillas_parameters=['intensity', 'length', 'width']): #, emin=10*u.GeV, emax=50*u.GeV):
-        self.dl1_data = tables.open_file(self.dl1_file_path)
-        images_tel = self.dl1_data.root.dl1.event.telescope.image.LST_LSTCam.where("""tel_id=={0}""".format(tel_id))
-        self.parameter_value_dict = {}
+    def read_dl1_file(self, dl1_file_name, event_used, tel_id=1, hillas_parameters=['intensity', 'length', 'width']): #, emin=10*u.GeV, emax=50*u.GeV):        
+        self.dl1_data[dl1_file_name] = tables.open_file(self.dl1_file_path[dl1_file_name])
+        images_tel = self.dl1_data[dl1_file_name].root.dl1.event.telescope.image.LST_LSTCam.where("""tel_id=={0}""".format(tel_id))
+        self.parameter_value_dict[dl1_file_name] = {}
         for param in hillas_parameters:
             parameters_tel = self.dl1_data.root.dl1.event.telescope.parameters.LST_LSTCam.where("""tel_id=={0}""".format(tel_id))
-            self.parameter_value_dict[param] = np.array([x[param] for (x, y) in zip(parameters_tel, event_used) if y==True])
-            logger.debug('DL1 parameter-set number: {0} events'.format(len(self.parameter_value_dict[param])))
+            self.parameter_value_dict[dl1_file_name][param] = np.array([x[param] for (x, y) in zip(parameters_tel, event_used) if y==True])
+            logger.debug('DL1 parameter-set number: {0} events'.format(len(self.parameter_value_dict[dl1_file_name][param])))
         
-        self.dl1_image_tables = \
+        self.dl1_image_tables[dl1_file_name] = \
         [ x[2] for (x, y) in zip(images_tel, event_used) if y==True]
 
-        self.dl1_entries = len(self.dl1_image_tables)
-        logger.debug('DL1 image number: {0} events'.format(self.dl1_entries))
+        self.dl1_entries[dl1_file_name] = len(self.dl1_image_tables[dl1_file_name])
+        logger.debug('DL1 image number: {0} events'.format(self.dl1_entries[dl1_file_name]))
         dl1_reco_phe = [] 
-        for dl1img in self.dl1_image_tables:
+        for dl1img in self.dl1_image_tables[dl1_file_name]:
             for i in dl1img:
                 dl1_reco_phe.append(i)
         self.dl1_reco_phe = np.array(dl1_reco_phe)    
@@ -281,15 +290,15 @@ class LowLevelAnalysis:
         return (separation_best_divbin, separation_gain)
     
     
-    def get_roc_curve(self, sig_phe=3, bkg_phe=0):
-        signal_total = np.sum(self.reco_phe_hists[sig_phe][0])
-        background_total = np.sum(self.reco_phe_hists[bkg_phe][0])
-        signal_cum = np.cumsum(self.reco_phe_hists[sig_phe][0][::-1])[::-1] 
-        background_cum = np.cumsum(self.reco_phe_hists[bkg_phe][0][::-1])[::-1] 
+    # def get_roc_curve(self, sig_phe=3, bkg_phe=0):
+    #     signal_total = np.sum(self.reco_phe_hists[sig_phe][0])
+    #     background_total = np.sum(self.reco_phe_hists[bkg_phe][0])
+    #     signal_cum = np.cumsum(self.reco_phe_hists[sig_phe][0][::-1])[::-1] 
+    #     background_cum = np.cumsum(self.reco_phe_hists[bkg_phe][0][::-1])[::-1] 
         
-        sig_acceptance = []
-        bkg_residual = []
-        for ibin, (sigcum, bkgcum) in enumerate(zip(signal_cum, background_cum)):
-            sig_acceptance.append(sigcum/signal_total)
-            bkg_residual.append(bkgcum/background_total)
-        return (np.array(sig_acceptance), np.array(bkg_residual))
+    #     sig_acceptance = []
+    #     bkg_residual = []
+    #     for ibin, (sigcum, bkgcum) in enumerate(zip(signal_cum, background_cum)):
+    #         sig_acceptance.append(sigcum/signal_total)
+    #         bkg_residual.append(bkgcum/background_total)
+    #     return (np.array(sig_acceptance), np.array(bkg_residual))
